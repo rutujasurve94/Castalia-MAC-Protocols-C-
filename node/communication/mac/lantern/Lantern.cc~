@@ -1,0 +1,135 @@
+/****************************************************************************
+ *  Copyright: National ICT Australia,  2007 - 2011                         *
+ *  Developed at the ATP lab, Networked Systems research theme              *
+ *  Author(s): Yuriy Tselishchev, Athanassios Boulis                        *
+ *  This file is distributed under the terms in the attached LICENSE file.  *
+ *  If you do not find this file, copies can be found by writing to:        *
+ *                                                                          *
+ *      NICTA, Locked Bag 9013, Alexandria, NSW 1435, Australia             *
+ *      Attention:  License Inquiry.                                        *
+ *                                                                          *
+ ****************************************************************************/
+
+#include "Lantern.h"
+#include "MacPacket_m.h"
+#include <vector>
+ using namespace std;
+
+Define_Module(Lantern);
+
+struct nodeLocRec {
+ 	double locX;
+ 	double locY;
+};
+
+ vector <nodeLocRec> nodesLocVec;
+
+void Lantern::fromRadioLayer(cPacket * pkt, double rssi, double lqi)
+{
+	LanternMacPacket *macPkt = dynamic_cast <LanternMacPacket*>(pkt);
+	if (macPkt == NULL)
+		return;
+	if (macPkt->getDestination() == SELF_MAC_ADDRESS ||
+	    macPkt->getDestination() == BROADCAST_MAC_ADDRESS)
+	{
+		toNetworkLayer(decapsulatePacket(macPkt));
+	}
+}
+
+void Lantern::fromNetworkLayer(cPacket * pkt, int destination)
+{
+	LanternMacPacket *macFrame = new LanternMacPacket("Lantern packet", MAC_LAYER_PACKET);
+	encapsulatePacket(macFrame, pkt);
+	macFrame->setSource(SELF_MAC_ADDRESS);
+	macFrame->setDestination(destination);
+	toRadioLayer(macFrame);
+	toRadioLayer(createRadioCommand(SET_STATE, TX));
+}
+
+void Lantern::startup()
+{
+int node = getParentModule()->getParentModule()->getParentModule()->par("numNodes");
+//trace() <<"number  "<< node;
+//double x = getParentModule()->getParentModule()->getParentModule()->getSubmodule("node",4)->getSubmodule("MobilityManager")->getLocation().x;
+
+cModule *theSNModule;
+theSNModule = getParentModule()->getParentModule()->getParentModule();
+
+cModule *tmpNode;
+nodeLocRec tmpRec;
+
+for(int i=0; i < node; i++){
+	tmpNode = theSNModule->getSubmodule("node",i);
+	tmpRec.locX = tmpNode->par("xCoor");
+	tmpRec.locY = tmpNode->par("yCoor");
+	trace() << "X coor and Y coor : " << tmpRec.locX << "  " << tmpRec.locY;
+	nodesLocVec.push_back(tmpRec);
+}
+//declare array of nodeLocRec and Node storing x and y co-ordinates of the nodes
+nodeLocRec[node] Rec;
+cModule[node] *Node;
+for( i=0; i < node; i++){
+	Node[i] = theSNModule->getSubmodule("node",i);
+	Rec[i].locX = Node[i]->par("xCoor");
+	Rec[i].locY = Node[i]->par("yCoor");
+	//trace() << "X coor and Y coor : " << tmpRec.locX << "  " << tmpRec.locY;
+	nodesLocVec.push_back(Rec[i]);
+}
+
+
+//storing neighbours of nodes in an array. Row i: will have indices of neighbours of node i 
+//node 0 is the mobile node according to omnetpp.ini file, so loop could begin for the 1st node onwards
+int neighbour[node][node];
+int j,k;
+for( i=0; i < node; i++){
+	k=0;
+for(j=0;j<node;j++){
+if(i!=j){
+if(((Rec[i].locX-Rec[j].locX)*(Rec[i].locX-Rec[j].locX) + (Rec[i].locY-Rec[j].locY)*(Rec[i].locY-Rec[j].locY)) < 50){
+	neighbour[i][k]=j;
+	j++;
+}
+}
+}
+}
+
+
+}
+
+
+
+void Lantern::timerFiredCallback(int timer)
+{
+	switch (timer) {
+
+		case Sleep:{
+			/* Timeout to hear a schedule packet has expired at this stage, 
+			 * MAC is able to create its own schedule after a random offset
+			 * within the duration of 1 frame
+			 */
+			//cout<<"hi";
+			 toRadioLayer(createRadioCommand(SET_STATE, SLEEP));
+             setMacState(MAC_STATE_SLEEP);
+			 trace() << "Initiated sleep procedure";
+			//setTimer(SLEEP, 500);
+			break;
+		}
+
+		case Wakeup:{
+			/* Random offset selected for creating a new schedule has expired. 
+			 * If at this stage still no schedule was received, MAC creates 
+			 * its own schedule and tries to broadcast it
+			 */
+			 toRadioLayer(createRadioCommand(SET_STATE, RX));
+             setMacState(MAC_STATE_SLEEP);
+			trace() << "Initiated wakeup procedure";
+			break;
+		}
+		default :{
+		}
+		}
+
+}
+
+
+
